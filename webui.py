@@ -8,9 +8,7 @@ if not hasattr(collections, 'MutableMapping'):
     collections.MutableMapping = collections.abc.MutableMapping
 
 # Copyright (c) 2024 Alibaba Inc (authors: Xiang Lyu, Liu Yue)
-# Modified by Atik Hasan for Movie Dubbing Pipeline
-import os
-import sys
+# Modified by Atik Hasan for Movie Dubbing Pipeline (Cross-Platform CPU/GPU Compatible)
 import argparse
 import gradio as gr
 import numpy as np
@@ -29,6 +27,10 @@ from cosyvoice.utils.common import set_all_random_seed
 inference_mode_list = ['ক্রস-লিঙ্গুয়াল ক্লোনিং (ইংরেজি থেকে বাংলা ডাবিং)', '৩ সেকেন্ড দ্রুত ক্লোনিং']
 stream_mode_list = [('না', False), ('হ্যাঁ', True)]
 max_val = 0.8
+
+# ডিভাইস এবং ডেটা টাইপ অটো-কনফিগারেশন (CPU এবং GPU উভয় ডিভাইসের জন্য)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"--> [Atik Hasan Pipeline] Running on device: {device}")
 
 
 def generate_seed():
@@ -55,8 +57,12 @@ def generate_audio(tts_text, mode_checkbox_group, prompt_text, prompt_wav_upload
     if 'ক্রস-লিঙ্গুয়াল' in mode_checkbox_group:
         logging.info('get cross_lingual inference request for movie dubbing')
         set_all_random_seed(seed)
-        for i in cosyvoice.inference_cross_lingual(tts_text, prompt_wav, stream=stream, speed=speed):
-            yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
+        try:
+            for i in cosyvoice.inference_cross_lingual(tts_text, prompt_wav, stream=stream, speed=speed):
+                yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
+        except Exception as e:
+            gr.Warning(f'ইনফারেন্সের সময় ত্রুটি ঘটেছে: {str(e)}')
+            yield (cosyvoice.sample_rate, default_data)
     else:
         if prompt_text == '':
             gr.Warning('৩ সেকেন্ড দ্রুত ক্লোনিং মোডের জন্য প্রম্পট টেক্সট আবশ্যক!')
@@ -64,8 +70,12 @@ def generate_audio(tts_text, mode_checkbox_group, prompt_text, prompt_wav_upload
             return
         logging.info('get zero_shot inference request')
         set_all_random_seed(seed)
-        for i in cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_wav, stream=stream, speed=speed):
-            yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
+        try:
+            for i in cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_wav, stream=stream, speed=speed):
+                yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
+        except Exception as e:
+            gr.Warning(f'ইনফারেন্সের সময় ত্রুটি ঘটেছে: {str(e)}')
+            yield (cosyvoice.sample_rate, default_data)
 
 
 def main():
@@ -107,6 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--model_dir', type=str, default='pretrained_models/CosyVoice2-0.5B', help='local path or modelscope repo id')
     args = parser.parse_args()
+    
+    # অটো মডেল লোডিং উইথ সেফটি হ্যান্ডলিং
     cosyvoice = AutoModel(model_dir=args.model_dir)
 
     prompt_sr = 16000
